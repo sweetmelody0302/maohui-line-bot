@@ -142,12 +142,91 @@ async function handleEvent(event) {
 
         return new Promise((resolve, reject) => {
             difyResponse.data.on('end', async () => {
-                const finalMessage = fullReply.trim() || "⚠️ 老闆，Dify 大腦沒有回傳任何文字，可能是模型 API 額度滿了或搜尋工具壞了！";
-                
+                let finalMessageText = fullReply.trim();
+                let messagesToSend = [];
+
+                // ==========================================
+                // 【終極殺招：Flex Message 攔截器】
+                // 尋找 Dify 傳來的 ```flex ... ``` 神秘代碼
+                // ==========================================
+                const flexRegex = /```flex\n([\s\S]*?)\n```/;
+                const match = finalMessageText.match(flexRegex);
+
+                if (match) {
+                    try {
+                        const products = JSON.parse(match[1]); // 把神秘代碼轉成 JSON 陣列
+                        
+                        // 把神秘代碼從一般文字中拔除，只留給客人看一般安撫對話
+                        finalMessageText = finalMessageText.replace(match[0], '').trim();
+
+                        if (finalMessageText) {
+                            messagesToSend.push({ type: 'text', text: finalMessageText });
+                        }
+
+                        // 組裝超精美 LINE 輪播卡片 (Carousel)
+                        const bubbles = products.map(p => ({
+                            "type": "bubble",
+                            "hero": {
+                                "type": "image",
+                                // 預設圖片防呆：AI如果不懂圖片連結，用茂暉專屬配色佔位圖防當機
+                                "url": p.image || "https://placehold.co/600x400/F97316/FFFFFF/png?text=TWSAFE+Product",
+                                "size": "full",
+                                "aspectRatio": "20:13",
+                                "aspectMode": "cover"
+                            },
+                            "body": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "contents": [
+                                    { "type": "text", "text": p.name || "精選商品", "weight": "bold", "size": "xl", "wrap": true },
+                                    { "type": "text", "text": p.desc || "茂暉國際高品質推薦", "size": "sm", "color": "#666666", "wrap": true },
+                                    { "type": "text", "text": p.price ? `NT$ ${p.price}` : "請洽客服", "size": "lg", "color": "#ff0000", "weight": "bold", "margin": "md" }
+                                ]
+                            },
+                            "footer": {
+                                "type": "box",
+                                "layout": "vertical",
+                                "spacing": "sm",
+                                "contents": [
+                                    {
+                                        "type": "button",
+                                        "style": "primary",
+                                        "color": "#f97316", // 茂暉專屬活力橘
+                                        "action": {
+                                            "type": "uri",
+                                            "label": "前往蝦皮看看",
+                                            "uri": p.link || "https://reurl.cc/pvD0Dx"
+                                        }
+                                    }
+                                ]
+                            }
+                        }));
+
+                        // 將卡片塞進發送名單 (LINE 最多 12 張，我們保險抓前 10 張)
+                        messagesToSend.push({
+                            "type": "flex",
+                            "altText": "茂暉國際為您推薦專屬商品",
+                            "contents": {
+                                "type": "carousel",
+                                "contents": bubbles.slice(0, 10)
+                            }
+                        });
+
+                    } catch (e) {
+                        console.error('Flex JSON 解析失敗:', e);
+                        // 如果 AI 格式寫錯了，就乖乖傳純文字，不讓系統崩潰
+                        if (finalMessageText) messagesToSend.push({ type: 'text', text: finalMessageText });
+                    }
+                } else {
+                    // 如果沒有觸發推薦，就一般文字回覆
+                    const fallbackText = finalMessageText || "⚠️ 老闆，Dify 大腦沒有回傳任何文字，可能是模型 API 額度滿了或搜尋工具壞了！";
+                    messagesToSend.push({ type: 'text', text: fallbackText });
+                }
+
                 try {
                     await client.replyMessage({
                         replyToken: replyToken,
-                        messages: [{ type: 'text', text: finalMessage }]
+                        messages: messagesToSend
                     });
                     resolve('Success');
                 } catch (error) {
