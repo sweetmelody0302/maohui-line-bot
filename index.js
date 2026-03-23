@@ -17,6 +17,11 @@ const client = new line.messagingApi.MessagingApiClient({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
 });
 
+// 【除錯修復】新增抓取圖片專用的 BlobClient (LINE SDK v9 規定)
+const blobClient = new line.messagingApiBlob.MessagingApiBlobClient({
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
+});
+
 // Dify 的 API 設定
 const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
@@ -60,8 +65,8 @@ async function handleEvent(event) {
             // 【優化】讓 AI 知道這是一張圖，並主動詢問是不是要找商品
             userMessage = '我上傳了一張圖片。如果這是一張商品照，請幫我辨識它是什麼產品，並告訴我你們有沒有賣？如果是瑕疵照片，請幫我處理。';
 
-            // 拿提貨單去 LINE 下載圖片二進位檔
-            const stream = await client.getMessageContent(event.message.id);
+            // 拿提貨單去 LINE 下載圖片二進位檔 (改用 blobClient)
+            const stream = await blobClient.getMessageContent(event.message.id);
             const chunks = [];
             for await (const chunk of stream) chunks.push(chunk);
             const buffer = Buffer.concat(chunks);
