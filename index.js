@@ -17,17 +17,15 @@ const client = new line.messagingApi.MessagingApiClient({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
 });
 
-// 【除錯修復】新增抓取圖片專用的 BlobClient (LINE SDK v9 規定)
-const blobClient = new line.messagingApiBlob.MessagingApiBlobClient({
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
-});
+// 【除錯公告】我們正式開除會讓 Zeabur 崩潰的 blobClient！
+// 改用下方 100% 穩定的 axios 直接跟 LINE 要圖片！
 
 // Dify 的 API 設定
 const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 app.get('/', (req, res) => {
-    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載抓蟲透視眼)');
+    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載永不崩潰看圖模式)');
 });
 
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
@@ -65,11 +63,14 @@ async function handleEvent(event) {
             // 【優化】讓 AI 知道這是一張圖，並主動詢問是不是要找商品
             userMessage = '我上傳了一張圖片。如果這是一張商品照，請幫我辨識它是什麼產品，並告訴我你們有沒有賣？如果是瑕疵照片，請幫我處理。';
 
-            // 拿提貨單去 LINE 下載圖片二進位檔 (改用 blobClient)
-            const stream = await blobClient.getMessageContent(event.message.id);
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(chunk);
-            const buffer = Buffer.concat(chunks);
+            // 【終極防當機修復】改用 axios 直接呼叫 LINE API 拿圖片，避開官方雷包 SDK
+            const imageRes = await axios.get(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, {
+                headers: {
+                    'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+                },
+                responseType: 'arraybuffer' // 告訴 axios 我們要收二進位檔案
+            });
+            const buffer = Buffer.from(imageRes.data);
 
             const form = new FormData();
             form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
@@ -157,7 +158,7 @@ async function handleEvent(event) {
         });
 
     } catch (error) {
-        console.error('呼叫 Dify API 失敗:', error.response?.data || error.message);
+        console.error('系統錯誤:', error.response?.data || error.message);
         return client.replyMessage({
             replyToken: replyToken,
             messages: [{ type: 'text', text: `系統連線失敗：${error.message}` }]
@@ -167,5 +168,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉國際機器人已啟動，搭載抓蟲透視眼！監聽 Port: ${port}`);
+    console.log(`茂暉國際機器人已啟動，搭載永不崩潰看圖模式！監聽 Port: ${port}`);
 });
