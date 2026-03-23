@@ -17,15 +17,12 @@ const client = new line.messagingApi.MessagingApiClient({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
 });
 
-// 【除錯公告】我們正式開除會讓 Zeabur 崩潰的 blobClient！
-// 改用下方 100% 穩定的 axios 直接跟 LINE 要圖片！
-
 // Dify 的 API 設定
 const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 app.get('/', (req, res) => {
-    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載永不崩潰看圖模式)');
+    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載頂級電商卡片 UI)');
 });
 
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
@@ -60,15 +57,13 @@ async function handleEvent(event) {
         // 【視覺升級區塊：處理客人的圖片訊息】
         // ==========================================
         if (event.message.type === 'image') {
-            // 【優化】讓 AI 知道這是一張圖，並主動詢問是不是要找商品
             userMessage = '我上傳了一張圖片。如果這是一張商品照，請幫我辨識它是什麼產品，並告訴我你們有沒有賣？如果是瑕疵照片，請幫我處理。';
 
-            // 【終極防當機修復】改用 axios 直接呼叫 LINE API 拿圖片，避開官方雷包 SDK
             const imageRes = await axios.get(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, {
                 headers: {
                     'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
                 },
-                responseType: 'arraybuffer' // 告訴 axios 我們要收二進位檔案
+                responseType: 'arraybuffer' 
             });
             const buffer = Buffer.from(imageRes.data);
 
@@ -76,7 +71,6 @@ async function handleEvent(event) {
             form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
             form.append('user', userId);
 
-            // 呼叫 Dify 上傳
             const uploadRes = await axios.post('https://api.dify.ai/v1/files/upload', form, {
                 headers: {
                     ...form.getHeaders(),
@@ -113,7 +107,6 @@ async function handleEvent(event) {
 
         let fullReply = '';
 
-        // 解析 Dify 傳回來的 Streaming 碎塊
         difyResponse.data.on('data', (chunk) => {
             const chunkStr = chunk.toString('utf8');
             const lines = chunkStr.split('\n');
@@ -125,13 +118,11 @@ async function handleEvent(event) {
                     
                     try {
                         const dataObj = JSON.parse(dataStr);
-                        // 正常的回答
                         if (dataObj.event === 'message' || dataObj.event === 'agent_message') {
                             if (dataObj.answer) fullReply += dataObj.answer;
                         } 
-                        // 【終極鷹眼】如果 Dify 底層報錯，直接抓出來印在 LINE 上給老闆看！
                         else if (dataObj.event === 'error') {
-                            fullReply += `\n⚠️ [系統提示] 大腦處理異常：${dataObj.message || dataObj.code} (可能為並發過快或搜尋工具超時)`;
+                            fullReply += `\n⚠️ [系統提示] 大腦處理異常：${dataObj.message || dataObj.code}`;
                         }
                     } catch (e) {
                         // 忽略解析錯誤的碎塊
@@ -146,55 +137,110 @@ async function handleEvent(event) {
                 let messagesToSend = [];
 
                 // ==========================================
-                // 【終極殺招：Flex Message 攔截器】
-                // 尋找 Dify 傳來的 ```flex ... ``` 神秘代碼
+                // 【尊榮級 Flex Message 攔截器】
                 // ==========================================
                 const flexRegex = /```flex\n([\s\S]*?)\n```/;
                 const match = finalMessageText.match(flexRegex);
 
                 if (match) {
                     try {
-                        const products = JSON.parse(match[1]); // 把神秘代碼轉成 JSON 陣列
+                        const products = JSON.parse(match[1]); 
                         
-                        // 把神秘代碼從一般文字中拔除，只留給客人看一般安撫對話
                         finalMessageText = finalMessageText.replace(match[0], '').trim();
 
                         if (finalMessageText) {
                             messagesToSend.push({ type: 'text', text: finalMessageText });
                         }
 
-                        // 組裝超精美 LINE 輪播卡片 (Carousel)
+                        // 【極簡專業風】組裝超精美 LINE 輪播卡片
                         const bubbles = products.map(p => ({
                             "type": "bubble",
+                            "size": "micro", // 縮小卡片寬度，讓輪播效果更精緻、更像 App
                             "hero": {
                                 "type": "image",
-                                // 預設圖片防呆：AI如果不懂圖片連結，用茂暉專屬配色佔位圖防當機
-                                "url": p.image || "https://placehold.co/600x400/F97316/FFFFFF/png?text=TWSAFE+Product",
+                                // 預設圖片升級：極簡霧灰底 + 專業深灰字
+                                "url": p.image || "https://placehold.co/600x600/F1F5F9/475569/png?text=TWSAFE",
                                 "size": "full",
-                                "aspectRatio": "20:13",
+                                "aspectRatio": "1:1", // 黃金正方比例
                                 "aspectMode": "cover"
                             },
                             "body": {
                                 "type": "box",
                                 "layout": "vertical",
+                                "paddingAll": "15px",
                                 "contents": [
-                                    { "type": "text", "text": p.name || "精選商品", "weight": "bold", "size": "xl", "wrap": true },
-                                    { "type": "text", "text": p.desc || "茂暉國際高品質推薦", "size": "sm", "color": "#666666", "wrap": true },
-                                    { "type": "text", "text": p.price ? `NT$ ${p.price}` : "請洽客服", "size": "lg", "color": "#ff0000", "weight": "bold", "margin": "md" }
+                                    {
+                                        "type": "text",
+                                        "text": "茂暉嚴選",
+                                        "color": "#ea580c", // 質感橘色標籤
+                                        "size": "xs",
+                                        "weight": "bold"
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": p.name || "精選商品",
+                                        "weight": "bold",
+                                        "size": "md",
+                                        "wrap": true,
+                                        "maxLines": 2,
+                                        "margin": "sm",
+                                        "color": "#1e293b" // 頂級深藍黑
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": p.desc || "高品質專業防護首選",
+                                        "size": "xs",
+                                        "color": "#64748b",
+                                        "wrap": true,
+                                        "maxLines": 2,
+                                        "margin": "sm"
+                                    },
+                                    {
+                                        "type": "separator",
+                                        "margin": "lg",
+                                        "color": "#f1f5f9" // 細緻分隔線
+                                    },
+                                    {
+                                        "type": "box",
+                                        "layout": "horizontal",
+                                        "margin": "md",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "NT$",
+                                                "size": "xs",
+                                                "color": "#ef4444",
+                                                "align": "end",
+                                                "gravity": "bottom",
+                                                "flex": 1
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": p.price ? `${p.price}` : "洽客服",
+                                                "size": "xl",
+                                                "color": "#ef4444",
+                                                "weight": "bold",
+                                                "align": "end",
+                                                "flex": 4
+                                            }
+                                        ]
+                                    }
                                 ]
                             },
                             "footer": {
                                 "type": "box",
                                 "layout": "vertical",
-                                "spacing": "sm",
+                                "paddingAll": "15px",
+                                "paddingTop": "0px",
                                 "contents": [
                                     {
                                         "type": "button",
                                         "style": "primary",
-                                        "color": "#f97316", // 茂暉專屬活力橘
+                                        "color": "#ea580c", // 質感橘色按鈕
+                                        "height": "sm",
                                         "action": {
                                             "type": "uri",
-                                            "label": "前往蝦皮看看",
+                                            "label": "查看詳情",
                                             "uri": p.link || "https://reurl.cc/pvD0Dx"
                                         }
                                     }
@@ -202,7 +248,6 @@ async function handleEvent(event) {
                             }
                         }));
 
-                        // 將卡片塞進發送名單 (LINE 最多 12 張，我們保險抓前 10 張)
                         messagesToSend.push({
                             "type": "flex",
                             "altText": "茂暉國際為您推薦專屬商品",
@@ -214,12 +259,10 @@ async function handleEvent(event) {
 
                     } catch (e) {
                         console.error('Flex JSON 解析失敗:', e);
-                        // 如果 AI 格式寫錯了，就乖乖傳純文字，不讓系統崩潰
                         if (finalMessageText) messagesToSend.push({ type: 'text', text: finalMessageText });
                     }
                 } else {
-                    // 如果沒有觸發推薦，就一般文字回覆
-                    const fallbackText = finalMessageText || "⚠️ 老闆，Dify 大腦沒有回傳任何文字，可能是模型 API 額度滿了或搜尋工具壞了！";
+                    const fallbackText = finalMessageText || "⚠️ 老闆，Dify 大腦沒有回傳任何文字！";
                     messagesToSend.push({ type: 'text', text: fallbackText });
                 }
 
@@ -247,5 +290,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉國際機器人已啟動，搭載永不崩潰看圖模式！監聽 Port: ${port}`);
+    console.log(`茂暉國際機器人已啟動，搭載頂級電商卡片UI！監聽 Port: ${port}`);
 });
