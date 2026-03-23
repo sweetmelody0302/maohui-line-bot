@@ -168,9 +168,10 @@ async function handleEvent(event) {
                                 "size": "micro",
                                 "hero": {
                                     "type": "image",
-                                    "url": p.image || "https://placehold.co/600x600/F1F5F9/475569/png?text=TWSAFE",
+                                    // 【顏值升級】換成頂級深藍黑底+橘字的官方 Banner，並把比例改成長方形 20:13
+                                    "url": p.image || "https://placehold.co/600x390/1e293b/ea580c/png?text=TWSAFE+Official",
                                     "size": "full",
-                                    "aspectRatio": "1:1",
+                                    "aspectRatio": "20:13",
                                     "aspectMode": "cover"
                                 },
                                 "body": {
