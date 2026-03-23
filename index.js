@@ -22,7 +22,7 @@ const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 app.get('/', (req, res) => {
-    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載頂級電商卡片 UI)');
+    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載精準商品連結導航)');
 });
 
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
@@ -153,100 +153,110 @@ async function handleEvent(event) {
                         }
 
                         // 【極簡專業風】組裝超精美 LINE 輪播卡片
-                        const bubbles = products.map(p => ({
-                            "type": "bubble",
-                            "size": "micro", // 縮小卡片寬度，讓輪播效果更精緻、更像 App
-                            "hero": {
-                                "type": "image",
-                                // 預設圖片升級：極簡霧灰底 + 專業深灰字
-                                "url": p.image || "https://placehold.co/600x600/F1F5F9/475569/png?text=TWSAFE",
-                                "size": "full",
-                                "aspectRatio": "1:1", // 黃金正方比例
-                                "aspectMode": "cover"
-                            },
-                            "body": {
-                                "type": "box",
-                                "layout": "vertical",
-                                "paddingAll": "15px",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "茂暉嚴選",
-                                        "color": "#ea580c", // 質感橘色標籤
-                                        "size": "xs",
-                                        "weight": "bold"
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": p.name || "精選商品",
-                                        "weight": "bold",
-                                        "size": "md",
-                                        "wrap": true,
-                                        "maxLines": 2,
-                                        "margin": "sm",
-                                        "color": "#1e293b" // 頂級深藍黑
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": p.desc || "高品質專業防護首選",
-                                        "size": "xs",
-                                        "color": "#64748b",
-                                        "wrap": true,
-                                        "maxLines": 2,
-                                        "margin": "sm"
-                                    },
-                                    {
-                                        "type": "separator",
-                                        "margin": "lg",
-                                        "color": "#f1f5f9" // 細緻分隔線
-                                    },
-                                    {
-                                        "type": "box",
-                                        "layout": "horizontal",
-                                        "margin": "md",
-                                        "contents": [
-                                            {
-                                                "type": "text",
-                                                "text": "NT$",
-                                                "size": "xs",
-                                                "color": "#ef4444",
-                                                "align": "end",
-                                                "gravity": "bottom",
-                                                "flex": 1
-                                            },
-                                            {
-                                                "type": "text",
-                                                "text": p.price ? `${p.price}` : "洽客服",
-                                                "size": "xl",
-                                                "color": "#ef4444",
-                                                "weight": "bold",
-                                                "align": "end",
-                                                "flex": 4
-                                            }
-                                        ]
-                                    }
-                                ]
-                            },
-                            "footer": {
-                                "type": "box",
-                                "layout": "vertical",
-                                "paddingAll": "15px",
-                                "paddingTop": "0px",
-                                "contents": [
-                                    {
-                                        "type": "button",
-                                        "style": "primary",
-                                        "color": "#ea580c", // 質感橘色按鈕
-                                        "height": "sm",
-                                        "action": {
-                                            "type": "uri",
-                                            "label": "查看詳情",
-                                            "uri": p.link || "https://reurl.cc/pvD0Dx"
-                                        }
-                                    }
-                                ]
+                        const bubbles = products.map(p => {
+                            // 【超級必殺技：動態精準連結替換】
+                            let finalLink = p.link || "https://reurl.cc/pvD0Dx";
+                            // 如果 AI 給的是首頁，我們自動把它變成「在茂暉蝦皮賣場內搜尋該商品」的精準網址
+                            if (finalLink.includes('reurl.cc/pvD0Dx') || finalLink.includes('shopee.tw')) {
+                                // 將商品名稱轉換為網址安全格式，並鎖定賣場 ID 67350667
+                                const searchKeyword = encodeURIComponent(p.name);
+                                finalLink = `https://shopee.tw/shop/67350667/search?keyword=${searchKeyword}`;
                             }
-                        }));
+
+                            return {
+                                "type": "bubble",
+                                "size": "micro",
+                                "hero": {
+                                    "type": "image",
+                                    "url": p.image || "https://placehold.co/600x600/F1F5F9/475569/png?text=TWSAFE",
+                                    "size": "full",
+                                    "aspectRatio": "1:1",
+                                    "aspectMode": "cover"
+                                },
+                                "body": {
+                                    "type": "box",
+                                    "layout": "vertical",
+                                    "paddingAll": "15px",
+                                    "contents": [
+                                        {
+                                            "type": "text",
+                                            "text": "茂暉嚴選",
+                                            "color": "#ea580c",
+                                            "size": "xs",
+                                            "weight": "bold"
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": p.name || "精選商品",
+                                            "weight": "bold",
+                                            "size": "md",
+                                            "wrap": true,
+                                            "maxLines": 2,
+                                            "margin": "sm",
+                                            "color": "#1e293b"
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": p.desc || "高品質專業防護首選",
+                                            "size": "xs",
+                                            "color": "#64748b",
+                                            "wrap": true,
+                                            "maxLines": 2,
+                                            "margin": "sm"
+                                        },
+                                        {
+                                            "type": "separator",
+                                            "margin": "lg",
+                                            "color": "#f1f5f9"
+                                        },
+                                        {
+                                            "type": "box",
+                                            "layout": "horizontal",
+                                            "margin": "md",
+                                            "contents": [
+                                                {
+                                                    "type": "text",
+                                                    "text": "NT$",
+                                                    "size": "xs",
+                                                    "color": "#ef4444",
+                                                    "align": "end",
+                                                    "gravity": "bottom",
+                                                    "flex": 1
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": p.price ? `${p.price}` : "洽客服",
+                                                    "size": "xl",
+                                                    "color": "#ef4444",
+                                                    "weight": "bold",
+                                                    "align": "end",
+                                                    "flex": 4
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                                "footer": {
+                                    "type": "box",
+                                    "layout": "vertical",
+                                    "paddingAll": "15px",
+                                    "paddingTop": "0px",
+                                    "contents": [
+                                        {
+                                            "type": "button",
+                                            "style": "primary",
+                                            "color": "#ea580c",
+                                            "height": "sm",
+                                            "action": {
+                                                "type": "uri",
+                                                "label": "查看詳情",
+                                                "uri": finalLink // 替換為我們算出來的精準賣場搜尋連結！
+                                            }
+                                        }
+                                    ]
+                                }
+                            };
+                        });
 
                         messagesToSend.push({
                             "type": "flex",
@@ -290,5 +300,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉國際機器人已啟動，搭載頂級電商卡片UI！監聽 Port: ${port}`);
+    console.log(`茂暉國際機器人已啟動，搭載頂級電商卡片UI與精準導航！監聽 Port: ${port}`);
 });
