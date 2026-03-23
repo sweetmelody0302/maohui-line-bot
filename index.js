@@ -3,10 +3,11 @@ require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
 const axios = require('axios');
+const FormData = require('form-data'); // 【升級視覺】打包圖片上傳給 Dify 的神兵利器
 
 const app = express();
 
-// LINE 的驗證資訊 (稍後要在 Zeabur 設定環境變數)
+// LINE 的驗證資訊 (Zeabur 的環境變數)
 const lineConfig = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -22,10 +23,10 @@ const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 // 測試伺服器是否活著的路由
 app.get('/', (req, res) => {
-    res.send('老闆好！茂暉國際中繼站運作正常！');
+    res.send('老闆好！茂暉國際中繼站運作正常！(已支援圖片視覺功能)');
 });
 
-// LINE Webhook 接收端點 (必須使用 line.middleware 來驗證 LINE 傳來的請求)
+// LINE Webhook 接收端點
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     try {
         const events = req.body.events;
@@ -45,17 +46,55 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
 
 // 處理個別事件的邏輯
 async function handleEvent(event) {
-    // 防呆：我們目前只處理「文字訊息」，其他貼圖、圖片先忽略
-    if (event.type !== 'message' || event.message.type !== 'text') {
+    // 【防呆】我們目前只處理「文字訊息」與「圖片訊息」，其他貼圖影片先忽略
+    if (event.type !== 'message') return Promise.resolve(null);
+    if (event.message.type !== 'text' && event.message.type !== 'image') {
         return Promise.resolve(null);
     }
 
-    const userMessage = event.message.text;
     const userId = event.source.userId;
     const replyToken = event.replyToken;
+    let userMessage = event.message.text || ''; 
+    let difyFiles = []; // 準備裝圖片 ID 給 Dify 看的百寶袋
 
     try {
-        // 【核心地雷區破解】向 Dify 發送請求，Agent 必須使用 streaming！
+        // ==========================================
+        // 【視覺升級區塊：處理客人的圖片訊息】
+        // ==========================================
+        if (event.message.type === 'image') {
+            // Dify 的 query 規定不能為空字串，所以我們幫客人塞一句預設台詞
+            userMessage = '這是我上傳的圖片，請幫我確認商品狀況或協助處理。';
+
+            // 1. 拿提貨單去 LINE 下載圖片二進位檔
+            const stream = await client.getMessageContent(event.message.id);
+            const chunks = [];
+            for await (const chunk of stream) chunks.push(chunk);
+            const buffer = Buffer.concat(chunks);
+
+            // 2. 把圖片打包，準備寄給 Dify
+            const form = new FormData();
+            form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
+            form.append('user', userId);
+
+            // 3. 呼叫 Dify 的「上傳檔案 API」取得檔案 ID
+            const uploadRes = await axios.post('https://api.dify.ai/v1/files/upload', form, {
+                headers: {
+                    ...form.getHeaders(),
+                    'Authorization': `Bearer ${DIFY_API_KEY}`
+                }
+            });
+
+            // 4. 拿到 Dify 發給我們的檔案 ID，存進百寶袋
+            difyFiles.push({
+                type: 'image',
+                transfer_method: 'local_file',
+                upload_file_id: uploadRes.data.id
+            });
+        }
+
+        // ==========================================
+        // 【核心對話區塊：呼叫 Dify Agent 大腦】
+        // ==========================================
         const difyResponse = await axios({
             method: 'post',
             url: DIFY_API_URL,
@@ -65,11 +104,12 @@ async function handleEvent(event) {
             },
             data: {
                 inputs: {}, // 【注意】Dify Agent 規定 inputs 必須是空物件
-                query: userMessage, // 使用者在 LINE 打的字
-                response_mode: 'streaming', // 【防呆】絕對不可用 blocking，否則 Agent 會報錯 400！
-                user: userId // 用 LINE 的 userId 讓 Dify 記住對話上下文
+                query: userMessage, // 使用者打的字，或是圖片的預設台詞
+                response_mode: 'streaming', // 【防呆】絕對不可用 blocking！
+                user: userId, 
+                files: difyFiles // 【圖片功能】把剛剛上傳的圖片交給 Dify
             },
-            responseType: 'stream' // 告訴 axios 我們要接收串流資料
+            responseType: 'stream' // 接收串流資料
         });
 
         let fullReply = '';
@@ -86,7 +126,7 @@ async function handleEvent(event) {
                     
                     try {
                         const dataObj = JSON.parse(dataStr);
-                        // 抓取 Dify 產生的文字片段 (event 可能是 message 或 agent_message)
+                        // 抓取 Dify 產生的文字片段
                         if (dataObj.event === 'message' || dataObj.event === 'agent_message') {
                             fullReply += dataObj.answer;
                         }
@@ -128,8 +168,7 @@ async function handleEvent(event) {
 
 // 啟動伺服器
 // 【Zeabur 502 防呆】如果有遇到 502 Bad Gateway，通常是 Port 抓錯。
-// 請檢查 Zeabur 環境變數是否為大寫 PORT，或者直接刪除 PORT 變數讓 Zeabur 自動分配！
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉國際機器人已啟動，監聽 Port: ${port}`);
+    console.log(`茂暉國際機器人已啟動，支援看圖功能！監聽 Port: ${port}`);
 });
