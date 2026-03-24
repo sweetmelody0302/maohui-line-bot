@@ -18,11 +18,10 @@ const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 // ==========================================
-// 【新增旗艦功能】：提供 LIFF 報價單網頁
+// 【旗艦功能】：提供 LIFF 報價單網頁 (已包含數量欄位)
 // ==========================================
 app.get('/liff', (req, res) => {
     const liffId = process.env.LIFF_ID || '';
-    // 質感深藍/橘色調的 B2B 專業表單 HTML
     const htmlContent = `
     <!DOCTYPE html>
     <html lang="zh-TW">
@@ -62,6 +61,7 @@ app.get('/liff', (req, res) => {
                     <label class="block text-sm font-medium text-gray-700">需求品項 <span class="text-red-500">*</span></label>
                     <input type="text" id="items" placeholder="例如：MAPA 401 防溶劑手套" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
                 </div>
+                <!-- 老闆專屬新增：數量欄位 -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700">採購數量 <span class="text-red-500">*</span></label>
                     <input type="number" id="quantity" placeholder="例如：100" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
@@ -73,7 +73,6 @@ app.get('/liff', (req, res) => {
         </div>
 
         <script>
-            // 初始化 LIFF
             liff.init({ liffId: '${liffId}' }).catch(err => console.error(err));
 
             document.getElementById('leadForm').addEventListener('submit', function(e) {
@@ -87,23 +86,21 @@ app.get('/liff', (req, res) => {
                     name: document.getElementById('name').value,
                     phone: document.getElementById('phone').value,
                     items: document.getElementById('items').value,
-                    quantity: document.getElementById('quantity').value
+                    quantity: document.getElementById('quantity').value // 抓取數量
                 };
 
-                // 直接將資料打給我們 Zeabur 自己的 API
                 fetch('/api/submit-lead', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 }).then(res => res.json())
                   .then(() => {
-                      // 傳送成功後，讓使用者的 LINE 自動發送確認訊息，讓 AI 客服接手安撫
                       if (liff.isInClient()) {
                           liff.sendMessages([{
                               type: 'text',
                               text: \`【報價需求已送出】\\n公司：\${data.company}\\n聯絡人：\${data.name}\\n電話：\${data.phone}\\n品項：\${data.items}\\n數量：\${data.quantity}\\n\\n請專員盡速為我報價！\`
                           }]).then(() => {
-                              liff.closeWindow(); // 關閉表單畫面
+                              liff.closeWindow(); 
                           });
                       } else {
                           alert('報價需求已送出！業務專員將盡速與您聯絡。');
@@ -124,7 +121,7 @@ app.get('/liff', (req, res) => {
 });
 
 // ==========================================
-// 【新增旗艦功能】：接收 LIFF 表單資料並轉拋 Google Sheets
+// 【轉拋 Google Sheets】
 // ==========================================
 app.post('/api/submit-lead', express.json(), async (req, res) => {
     const googleScriptUrl = process.env.GOOGLE_SCRIPT_URL;
@@ -134,19 +131,17 @@ app.post('/api/submit-lead', express.json(), async (req, res) => {
             res.json({ success: true });
         } catch (err) {
             console.error('拋轉 Google Sheets 失敗:', err);
-            res.status(500).json({ error: 'Failed to save to Google Sheets' });
+            res.status(500).json({ error: 'Failed' });
         }
     } else {
-        res.json({ success: true, warning: 'No GOOGLE_SCRIPT_URL set' });
+        res.json({ success: true });
     }
 });
 
-app.get('/', (req, res) => {
-    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載 LIFF 自動表單接單系統)');
-});
+app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載LIFF旗艦版)'));
 
 // ==========================================
-// 處理 LINE 訊息的 Webhook (保留原本的所有神級功能)
+// 【LINE Webhook 核心處理】
 // ==========================================
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     try {
@@ -155,7 +150,7 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
         const results = await Promise.all(events.map(handleEvent));
         res.json(results);
     } catch (err) {
-        console.error('Webhook 發生錯誤:', err);
+        console.error('Webhook 錯誤:', err);
         res.status(500).end();
     }
 });
@@ -169,7 +164,7 @@ async function handleEvent(event) {
     let userMessage = event.message.text || ''; 
     let difyFiles = []; 
 
-    // 【防呆】如果收到客人用 LIFF 送出的制式文字，我們直接叫 AI 回應安撫，不走複雜流程
+    // 客人填完表單自動發送的文字，AI 直接安撫
     if (userMessage.includes('【報價需求已送出】')) {
         return client.replyMessage({
             replyToken: replyToken,
@@ -192,7 +187,6 @@ async function handleEvent(event) {
             const uploadRes = await axios.post('https://api.dify.ai/v1/files/upload', form, {
                 headers: { ...form.getHeaders(), 'Authorization': `Bearer ${DIFY_API_KEY}` }
             });
-
             difyFiles.push({ type: 'image', transfer_method: 'local_file', upload_file_id: uploadRes.data.id });
         }
 
@@ -216,8 +210,6 @@ async function handleEvent(event) {
                         const dataObj = JSON.parse(dataStr);
                         if (dataObj.event === 'message' || dataObj.event === 'agent_message') {
                             if (dataObj.answer) fullReply += dataObj.answer;
-                        } else if (dataObj.event === 'error') {
-                            fullReply += `\n⚠️ [系統提示] 大腦處理異常：${dataObj.message || dataObj.code}`;
                         }
                     } catch (e) {}
                 }
@@ -229,7 +221,6 @@ async function handleEvent(event) {
                 let finalMessageText = fullReply.trim();
                 let messagesToSend = [];
 
-                // 【保留原本的隱藏殺招：Flex Message 卡片攔截器】
                 const flexRegex = /```flex\n([\s\S]*?)\n```/;
                 const match = finalMessageText.match(flexRegex);
 
@@ -322,5 +313,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉國際機器人已啟動，搭載 LIFF 表單旗艦版！監聽 Port: ${port}`);
+    console.log(`茂暉機器人已啟動，搭載 LIFF 表單旗艦版！監聽 Port: ${port}`);
 });
