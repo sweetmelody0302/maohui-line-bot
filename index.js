@@ -1,4 +1,3 @@
-// 引入必要的套件
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
@@ -7,31 +6,152 @@ const FormData = require('form-data');
 
 const app = express();
 
-// LINE 的驗證資訊 (Zeabur 的環境變數)
 const lineConfig = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-
 const client = new line.messagingApi.MessagingApiClient({
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN
 });
 
-// Dify 的 API 設定
 const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
-app.get('/', (req, res) => {
-    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載精準商品連結導航)');
+// ==========================================
+// 【新增旗艦功能】：提供 LIFF 報價單網頁
+// ==========================================
+app.get('/liff', (req, res) => {
+    const liffId = process.env.LIFF_ID || '';
+    // 質感深藍/橘色調的 B2B 專業表單 HTML
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="zh-TW">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <title>茂暉國際 - 專屬報價單</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+        <style>
+            body { background-color: #f1f5f9; font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+            .btn-orange { background-color: #ea580c; color: white; }
+            .btn-orange:hover { background-color: #c2410c; }
+        </style>
+    </head>
+    <body class="p-4">
+        <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6 border-t-4 border-[#1e293b]">
+            <h2 class="text-2xl font-bold text-[#1e293b] mb-1">大宗採購專屬報價單</h2>
+            <p class="text-xs text-gray-500 mb-6">請填寫您的需求，茂暉專員將盡速為您提供最優報價。</p>
+            
+            <form id="leadForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">公司名稱 <span class="text-red-500">*</span></label>
+                    <input type="text" id="company" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">聯絡人 <span class="text-red-500">*</span></label>
+                        <input type="text" id="name" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">電話 <span class="text-red-500">*</span></label>
+                        <input type="tel" id="phone" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">需求品項 <span class="text-red-500">*</span></label>
+                    <input type="text" id="items" placeholder="例如：MAPA 401 防溶劑手套" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">採購數量 <span class="text-red-500">*</span></label>
+                    <input type="number" id="quantity" placeholder="例如：100" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
+                </div>
+                <button type="submit" id="submitBtn" class="w-full btn-orange font-bold py-3 px-4 rounded-md shadow-lg mt-6 transition duration-200">
+                    送出需求並取得報價
+                </button>
+            </form>
+        </div>
+
+        <script>
+            // 初始化 LIFF
+            liff.init({ liffId: '${liffId}' }).catch(err => console.error(err));
+
+            document.getElementById('leadForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const btn = document.getElementById('submitBtn');
+                btn.innerText = '傳送中...';
+                btn.disabled = true;
+
+                const data = {
+                    company: document.getElementById('company').value,
+                    name: document.getElementById('name').value,
+                    phone: document.getElementById('phone').value,
+                    items: document.getElementById('items').value,
+                    quantity: document.getElementById('quantity').value
+                };
+
+                // 直接將資料打給我們 Zeabur 自己的 API
+                fetch('/api/submit-lead', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(res => res.json())
+                  .then(() => {
+                      // 傳送成功後，讓使用者的 LINE 自動發送確認訊息，讓 AI 客服接手安撫
+                      if (liff.isInClient()) {
+                          liff.sendMessages([{
+                              type: 'text',
+                              text: \`【報價需求已送出】\\n公司：\${data.company}\\n聯絡人：\${data.name}\\n電話：\${data.phone}\\n品項：\${data.items}\\n數量：\${data.quantity}\\n\\n請專員盡速為我報價！\`
+                          }]).then(() => {
+                              liff.closeWindow(); // 關閉表單畫面
+                          });
+                      } else {
+                          alert('報價需求已送出！業務專員將盡速與您聯絡。');
+                          btn.innerText = '已成功送出';
+                      }
+                  }).catch(err => {
+                      console.error(err);
+                      alert('發生錯誤，請稍後再試。');
+                      btn.innerText = '送出需求並取得報價';
+                      btn.disabled = false;
+                  });
+            });
+        </script>
+    </body>
+    </html>
+    `;
+    res.send(htmlContent);
 });
 
+// ==========================================
+// 【新增旗艦功能】：接收 LIFF 表單資料並轉拋 Google Sheets
+// ==========================================
+app.post('/api/submit-lead', express.json(), async (req, res) => {
+    const googleScriptUrl = process.env.GOOGLE_SCRIPT_URL;
+    if (googleScriptUrl) {
+        try {
+            await axios.post(googleScriptUrl, req.body);
+            res.json({ success: true });
+        } catch (err) {
+            console.error('拋轉 Google Sheets 失敗:', err);
+            res.status(500).json({ error: 'Failed to save to Google Sheets' });
+        }
+    } else {
+        res.json({ success: true, warning: 'No GOOGLE_SCRIPT_URL set' });
+    }
+});
+
+app.get('/', (req, res) => {
+    res.send('老闆好！茂暉國際中繼站運作正常！(已搭載 LIFF 自動表單接單系統)');
+});
+
+// ==========================================
+// 處理 LINE 訊息的 Webhook (保留原本的所有神級功能)
+// ==========================================
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     try {
         const events = req.body.events;
-        if (!events || events.length === 0) {
-            return res.status(200).send('OK');
-        }
-        // 處理每一個 LINE 傳來的事件
+        if (!events || events.length === 0) return res.status(200).send('OK');
         const results = await Promise.all(events.map(handleEvent));
         res.json(results);
     } catch (err) {
@@ -41,92 +161,65 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
 });
 
 async function handleEvent(event) {
-    // 【防呆】只處理「文字訊息」與「圖片訊息」
     if (event.type !== 'message') return Promise.resolve(null);
-    if (event.message.type !== 'text' && event.message.type !== 'image') {
-        return Promise.resolve(null);
-    }
+    if (event.message.type !== 'text' && event.message.type !== 'image') return Promise.resolve(null);
 
     const userId = event.source.userId;
     const replyToken = event.replyToken;
     let userMessage = event.message.text || ''; 
     let difyFiles = []; 
 
+    // 【防呆】如果收到客人用 LIFF 送出的制式文字，我們直接叫 AI 回應安撫，不走複雜流程
+    if (userMessage.includes('【報價需求已送出】')) {
+        return client.replyMessage({
+            replyToken: replyToken,
+            messages: [{ type: 'text', text: '老闆您好！您的專屬報價需求我們已經收到並匯入系統囉！✨\n\n我們的業務專員會用最快的速度為您核算最優惠的批發價格，並盡速與您聯繫，請您稍候！' }]
+        });
+    }
+
     try {
-        // ==========================================
-        // 【視覺升級區塊：處理客人的圖片訊息】
-        // ==========================================
         if (event.message.type === 'image') {
             userMessage = '我上傳了一張圖片。如果這是一張商品照，請幫我辨識它是什麼產品，並告訴我你們有沒有賣？如果是瑕疵照片，請幫我處理。';
-
             const imageRes = await axios.get(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, {
-                headers: {
-                    'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
-                },
+                headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` },
                 responseType: 'arraybuffer' 
             });
             const buffer = Buffer.from(imageRes.data);
-
             const form = new FormData();
             form.append('file', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
             form.append('user', userId);
 
             const uploadRes = await axios.post('https://api.dify.ai/v1/files/upload', form, {
-                headers: {
-                    ...form.getHeaders(),
-                    'Authorization': `Bearer ${DIFY_API_KEY}`
-                }
+                headers: { ...form.getHeaders(), 'Authorization': `Bearer ${DIFY_API_KEY}` }
             });
 
-            difyFiles.push({
-                type: 'image',
-                transfer_method: 'local_file',
-                upload_file_id: uploadRes.data.id
-            });
+            difyFiles.push({ type: 'image', transfer_method: 'local_file', upload_file_id: uploadRes.data.id });
         }
 
-        // ==========================================
-        // 【核心對話區塊：呼叫 Dify Agent 大腦】
-        // ==========================================
         const difyResponse = await axios({
             method: 'post',
             url: DIFY_API_URL,
-            headers: {
-                'Authorization': `Bearer ${DIFY_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            data: {
-                inputs: {}, 
-                query: userMessage, 
-                response_mode: 'streaming', 
-                user: userId, 
-                files: difyFiles 
-            },
+            headers: { 'Authorization': `Bearer ${DIFY_API_KEY}`, 'Content-Type': 'application/json' },
+            data: { inputs: {}, query: userMessage, response_mode: 'streaming', user: userId, files: difyFiles },
             responseType: 'stream' 
         });
 
         let fullReply = '';
-
         difyResponse.data.on('data', (chunk) => {
             const chunkStr = chunk.toString('utf8');
             const lines = chunkStr.split('\n');
-            
             for (const lineStr of lines) {
                 if (lineStr.startsWith('data: ')) {
                     const dataStr = lineStr.substring(6);
                     if (dataStr.trim() === '') continue;
-                    
                     try {
                         const dataObj = JSON.parse(dataStr);
                         if (dataObj.event === 'message' || dataObj.event === 'agent_message') {
                             if (dataObj.answer) fullReply += dataObj.answer;
-                        } 
-                        else if (dataObj.event === 'error') {
+                        } else if (dataObj.event === 'error') {
                             fullReply += `\n⚠️ [系統提示] 大腦處理異常：${dataObj.message || dataObj.code}`;
                         }
-                    } catch (e) {
-                        // 忽略解析錯誤的碎塊
-                    }
+                    } catch (e) {}
                 }
             }
         });
@@ -136,29 +229,20 @@ async function handleEvent(event) {
                 let finalMessageText = fullReply.trim();
                 let messagesToSend = [];
 
-                // ==========================================
-                // 【尊榮級 Flex Message 攔截器】
-                // ==========================================
+                // 【保留原本的隱藏殺招：Flex Message 卡片攔截器】
                 const flexRegex = /```flex\n([\s\S]*?)\n```/;
                 const match = finalMessageText.match(flexRegex);
 
                 if (match) {
                     try {
                         const products = JSON.parse(match[1]); 
-                        
                         finalMessageText = finalMessageText.replace(match[0], '').trim();
 
-                        if (finalMessageText) {
-                            messagesToSend.push({ type: 'text', text: finalMessageText });
-                        }
+                        if (finalMessageText) messagesToSend.push({ type: 'text', text: finalMessageText });
 
-                        // 【極簡專業風】組裝超精美 LINE 輪播卡片
                         const bubbles = products.map(p => {
-                            // 【超級必殺技：動態精準連結替換】
                             let finalLink = p.link || "https://reurl.cc/pvD0Dx";
-                            // 如果 AI 給的是首頁，我們自動把它變成「在茂暉蝦皮賣場內搜尋該商品」的精準網址
                             if (finalLink.includes('reurl.cc/pvD0Dx') || finalLink.includes('shopee.tw')) {
-                                // 將商品名稱轉換為網址安全格式，並鎖定賣場 ID 67350667
                                 const searchKeyword = encodeURIComponent(p.name);
                                 finalLink = `https://shopee.tw/shop/67350667/search?keyword=${searchKeyword}`;
                             }
@@ -168,7 +252,6 @@ async function handleEvent(event) {
                                 "size": "micro",
                                 "hero": {
                                     "type": "image",
-                                    // 【顏值升級】換成頂級深藍黑底+橘字的官方 Banner，並把比例改成長方形 20:13
                                     "url": p.image || "https://placehold.co/600x390/1e293b/ea580c/png?text=TWSAFE+Official",
                                     "size": "full",
                                     "aspectRatio": "20:13",
@@ -179,60 +262,17 @@ async function handleEvent(event) {
                                     "layout": "vertical",
                                     "paddingAll": "15px",
                                     "contents": [
-                                        {
-                                            "type": "text",
-                                            "text": "茂暉嚴選",
-                                            "color": "#ea580c",
-                                            "size": "xs",
-                                            "weight": "bold"
-                                        },
-                                        {
-                                            "type": "text",
-                                            "text": p.name || "精選商品",
-                                            "weight": "bold",
-                                            "size": "md",
-                                            "wrap": true,
-                                            "maxLines": 2,
-                                            "margin": "sm",
-                                            "color": "#1e293b"
-                                        },
-                                        {
-                                            "type": "text",
-                                            "text": p.desc || "高品質專業防護首選",
-                                            "size": "xs",
-                                            "color": "#64748b",
-                                            "wrap": true,
-                                            "maxLines": 2,
-                                            "margin": "sm"
-                                        },
-                                        {
-                                            "type": "separator",
-                                            "margin": "lg",
-                                            "color": "#f1f5f9"
-                                        },
+                                        { "type": "text", "text": "茂暉嚴選", "color": "#ea580c", "size": "xs", "weight": "bold" },
+                                        { "type": "text", "text": p.name || "精選商品", "weight": "bold", "size": "md", "wrap": true, "maxLines": 2, "margin": "sm", "color": "#1e293b" },
+                                        { "type": "text", "text": p.desc || "高品質專業防護", "size": "xs", "color": "#64748b", "wrap": true, "maxLines": 2, "margin": "sm" },
+                                        { "type": "separator", "margin": "lg", "color": "#f1f5f9" },
                                         {
                                             "type": "box",
                                             "layout": "horizontal",
                                             "margin": "md",
                                             "contents": [
-                                                {
-                                                    "type": "text",
-                                                    "text": "NT$",
-                                                    "size": "xs",
-                                                    "color": "#ef4444",
-                                                    "align": "end",
-                                                    "gravity": "bottom",
-                                                    "flex": 1
-                                                },
-                                                {
-                                                    "type": "text",
-                                                    "text": p.price ? `${p.price}` : "洽客服",
-                                                    "size": "xl",
-                                                    "color": "#ef4444",
-                                                    "weight": "bold",
-                                                    "align": "end",
-                                                    "flex": 4
-                                                }
+                                                { "type": "text", "text": "NT$", "size": "xs", "color": "#ef4444", "align": "end", "gravity": "bottom", "flex": 1 },
+                                                { "type": "text", "text": p.price ? `${p.price}` : "洽客服", "size": "xl", "color": "#ef4444", "weight": "bold", "align": "end", "flex": 4 }
                                             ]
                                         }
                                     ]
@@ -243,17 +283,7 @@ async function handleEvent(event) {
                                     "paddingAll": "15px",
                                     "paddingTop": "0px",
                                     "contents": [
-                                        {
-                                            "type": "button",
-                                            "style": "primary",
-                                            "color": "#ea580c",
-                                            "height": "sm",
-                                            "action": {
-                                                "type": "uri",
-                                                "label": "查看詳情",
-                                                "uri": finalLink // 替換為我們算出來的精準賣場搜尋連結！
-                                            }
-                                        }
+                                        { "type": "button", "style": "primary", "color": "#ea580c", "height": "sm", "action": { "type": "uri", "label": "查看詳情", "uri": finalLink } }
                                     ]
                                 }
                             };
@@ -262,14 +292,10 @@ async function handleEvent(event) {
                         messagesToSend.push({
                             "type": "flex",
                             "altText": "茂暉國際為您推薦專屬商品",
-                            "contents": {
-                                "type": "carousel",
-                                "contents": bubbles.slice(0, 10)
-                            }
+                            "contents": { "type": "carousel", "contents": bubbles.slice(0, 10) }
                         });
 
                     } catch (e) {
-                        console.error('Flex JSON 解析失敗:', e);
                         if (finalMessageText) messagesToSend.push({ type: 'text', text: finalMessageText });
                     }
                 } else {
@@ -278,20 +304,15 @@ async function handleEvent(event) {
                 }
 
                 try {
-                    await client.replyMessage({
-                        replyToken: replyToken,
-                        messages: messagesToSend
-                    });
+                    await client.replyMessage({ replyToken: replyToken, messages: messagesToSend });
                     resolve('Success');
                 } catch (error) {
-                    console.error('回傳 LINE 失敗:', error.response?.data || error.message);
                     reject(error);
                 }
             });
         });
 
     } catch (error) {
-        console.error('系統錯誤:', error.response?.data || error.message);
         return client.replyMessage({
             replyToken: replyToken,
             messages: [{ type: 'text', text: `系統連線失敗：${error.message}` }]
@@ -301,5 +322,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉國際機器人已啟動，搭載頂級電商卡片UI與精準導航！監聽 Port: ${port}`);
+    console.log(`茂暉國際機器人已啟動，搭載 LIFF 表單旗艦版！監聽 Port: ${port}`);
 });
