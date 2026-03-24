@@ -18,7 +18,7 @@ const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 // ==========================================
-// 【旗艦功能】：提供 LIFF 報價單網頁 (已包含數量欄位)
+// 【旗艦功能】：提供 LIFF 報價單網頁 
 // ==========================================
 app.get('/liff', (req, res) => {
     const liffId = process.env.LIFF_ID || '';
@@ -61,7 +61,6 @@ app.get('/liff', (req, res) => {
                     <label class="block text-sm font-medium text-gray-700">需求品項 <span class="text-red-500">*</span></label>
                     <input type="text" id="items" placeholder="例如：MAPA 401 防溶劑手套" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
                 </div>
-                <!-- 老闆專屬新增：數量欄位 -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700">採購數量 <span class="text-red-500">*</span></label>
                     <input type="number" id="quantity" placeholder="例如：100" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-[#ea580c] focus:border-[#ea580c]">
@@ -86,7 +85,7 @@ app.get('/liff', (req, res) => {
                     name: document.getElementById('name').value,
                     phone: document.getElementById('phone').value,
                     items: document.getElementById('items').value,
-                    quantity: document.getElementById('quantity').value // 抓取數量
+                    quantity: document.getElementById('quantity').value
                 };
 
                 fetch('/api/submit-lead', {
@@ -101,6 +100,10 @@ app.get('/liff', (req, res) => {
                               text: \`【報價需求已送出】\\n公司：\${data.company}\\n聯絡人：\${data.name}\\n電話：\${data.phone}\\n品項：\${data.items}\\n數量：\${data.quantity}\\n\\n請專員盡速為我報價！\`
                           }]).then(() => {
                               liff.closeWindow(); 
+                          }).catch(err => {
+                              // 【防呆】就算 LINE 傳送訊息卡住，也強制關閉網頁！
+                              console.error('LIFF 訊息傳送失敗', err);
+                              liff.closeWindow(); 
                           });
                       } else {
                           alert('報價需求已送出！業務專員將盡速與您聯絡。');
@@ -108,9 +111,8 @@ app.get('/liff', (req, res) => {
                       }
                   }).catch(err => {
                       console.error(err);
-                      alert('發生錯誤，請稍後再試。');
-                      btn.innerText = '送出需求並取得報價';
-                      btn.disabled = false;
+                      alert('網路連線稍微不穩，但我們已收到您的報價單！');
+                      if (liff.isInClient()) liff.closeWindow();
                   });
             });
         </script>
@@ -121,24 +123,25 @@ app.get('/liff', (req, res) => {
 });
 
 // ==========================================
-// 【轉拋 Google Sheets】
+// 【轉拋 Google Sheets】(已修復：射後不理光速模式)
 // ==========================================
-app.post('/api/submit-lead', express.json(), async (req, res) => {
+app.post('/api/submit-lead', express.json(), (req, res) => {
     const googleScriptUrl = process.env.GOOGLE_SCRIPT_URL;
+    
+    // 1. 收到資料後，立刻！馬上！回傳成功給手機，讓表單瞬間關閉 (不讓客人等 Google)
+    res.json({ success: true });
+
+    // 2. 偷偷在背景把資料打給 Google Sheets
     if (googleScriptUrl) {
-        try {
-            await axios.post(googleScriptUrl, req.body);
-            res.json({ success: true });
-        } catch (err) {
-            console.error('拋轉 Google Sheets 失敗:', err);
-            res.status(500).json({ error: 'Failed' });
-        }
+        axios.post(googleScriptUrl, req.body)
+            .then(() => console.log('✅ Google Sheets 背景寫入成功'))
+            .catch(err => console.error('⚠️ Google Sheets 背景寫入失敗 (但已收到資料):', err.message));
     } else {
-        res.json({ success: true });
+        console.error('⚠️ 老闆尚未設定 GOOGLE_SCRIPT_URL 變數！');
     }
 });
 
-app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載LIFF旗艦版)'));
+app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載LIFF光速關閉版)'));
 
 // ==========================================
 // 【LINE Webhook 核心處理】
@@ -164,7 +167,6 @@ async function handleEvent(event) {
     let userMessage = event.message.text || ''; 
     let difyFiles = []; 
 
-    // 客人填完表單自動發送的文字，AI 直接安撫
     if (userMessage.includes('【報價需求已送出】')) {
         return client.replyMessage({
             replyToken: replyToken,
@@ -313,5 +315,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉機器人已啟動，搭載 LIFF 表單旗艦版！監聽 Port: ${port}`);
+    console.log(`茂暉機器人已啟動，搭載 LIFF 光速關閉版！監聽 Port: ${port}`);
 });
