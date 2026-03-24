@@ -3,6 +3,7 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const axios = require('axios');
 const FormData = require('form-data'); 
+const Parser = require('rss-parser'); // [CTO 新增] Google 新聞雷達套件
 
 const app = express();
 
@@ -18,7 +19,7 @@ const DIFY_API_URL = 'https://api.dify.ai/v1/chat-messages';
 const DIFY_API_KEY = process.env.DIFY_API_KEY;
 
 // ==========================================
-// 【旗艦功能】：提供 LIFF 報價單網頁 
+// 【旗艦功能 1】：提供 LIFF 報價單網頁 
 // ==========================================
 app.get('/liff', (req, res) => {
     const liffId = process.env.LIFF_ID || '';
@@ -96,7 +97,6 @@ app.get('/liff', (req, res) => {
                 }).then(res => res.json())
                   .then(() => {
                       if (liff.isInClient()) {
-                          // 在手機 LINE APP 內：自動幫客人發送確認文字，然後秒關視窗！
                           liff.sendMessages([{
                               type: 'text',
                               text: \`【報價需求已送出】\\n公司：\${data.company}\\n聯絡人：\${data.name}\\n電話：\${data.phone}\\n品項：\${data.items}\\n數量：\${data.quantity}\`
@@ -107,11 +107,10 @@ app.get('/liff', (req, res) => {
                               liff.closeWindow(); 
                           });
                       } else {
-                          // 在電腦版或外部瀏覽器：改變按鈕顏色並嘗試關閉
                           btn.classList.add('btn-success');
                           btn.innerText = '已成功送出！請關閉此網頁回到 LINE';
                           alert('您的報價單已成功送出！請關閉此視窗回到 LINE。');
-                          window.close(); // 嘗試關閉網頁 (瀏覽器可能會阻擋，所以加上文字提示)
+                          window.close(); 
                       }
                   }).catch(err => {
                       console.error(err);
@@ -127,11 +126,11 @@ app.get('/liff', (req, res) => {
 });
 
 // ==========================================
-// 【轉拋 Google Sheets】(射後不理光速模式)
+// 【旗艦功能 2】：轉拋 Google Sheets (射後不理光速模式)
 // ==========================================
 app.post('/api/submit-lead', express.json(), (req, res) => {
     const googleScriptUrl = process.env.GOOGLE_SCRIPT_URL;
-    res.json({ success: true }); // 秒回成功，讓前端立刻關閉
+    res.json({ success: true }); // 光速回傳給手機，讓表單瞬間關閉
     if (googleScriptUrl) {
         axios.post(googleScriptUrl, req.body)
             .then(() => console.log('✅ Google Sheets 背景寫入成功'))
@@ -139,10 +138,144 @@ app.post('/api/submit-lead', express.json(), (req, res) => {
     }
 });
 
-app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載完美閉環版)'));
+// ==========================================
+// 【旗艦功能 3】：自動抓取工安新聞並廣播 (內容行銷必殺技)
+// ==========================================
+app.get('/api/broadcast-news', async (req, res) => {
+    // 🛡️ CTO 專屬安全鎖：防止網路爬蟲或閒雜人等觸發廣播
+    // 必須在網址後面加上 ?key=boss123 才能發射核彈！
+    const secretKey = req.query.key;
+    if (secretKey !== 'boss123') {
+        return res.status(403).send('<h1>🚫 警告：老闆金鑰錯誤，無法發射廣播！</h1>');
+    }
+
+    try {
+        const parser = new Parser();
+        // 抓取 Google 新聞 (精準鎖定關鍵字：台灣 工安意外，7天內)
+        const feed = await parser.parseURL('https://news.google.com/rss/search?q=%E5%8F%B0%E7%81%A3+%E5%B7%A5%E5%AE%89%E6%84%8F%E5%A4%96+when:7d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant');
+        
+        if (!feed.items || feed.items.length === 0) {
+            return res.send('<h1>✅ 目前天下太平，最近 7 天沒有相關工安新聞喔！</h1>');
+        }
+
+        // 取前 3 則最新且最具震撼力的新聞
+        const topNews = feed.items.slice(0, 3);
+        
+        // 組裝高質感 LINE Flex Message 輪播卡片
+        const bubbles = topNews.map(news => {
+            // 格式化日期 (轉成 YYYY/MM/DD)
+            const pubDate = new Date(news.pubDate);
+            const dateStr = pubDate.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
+            
+            // 處理摘要 (過濾 HTML 標籤，截斷字數防跑版)
+            let snippet = news.contentSnippet || news.content || '點擊查看詳細新聞內容';
+            snippet = snippet.replace(/<[^>]*>?/gm, '').trim();
+            if (snippet.length > 55) snippet = snippet.substring(0, 55) + '...';
+
+            return {
+                "type": "bubble",
+                "size": "micro",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": "#dc2626", // 警告紅底，吸引眼球
+                    "paddingAll": "12px",
+                    "contents": [
+                        { "type": "text", "text": "⚠️ 最新工安快訊", "color": "#ffffff", "weight": "bold", "size": "xs" }
+                    ]
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "paddingAll": "15px",
+                    "contents": [
+                        { "type": "text", "text": dateStr, "color": "#ea580c", "size": "xxs", "weight": "bold", "margin": "none" },
+                        { "type": "text", "text": news.title, "weight": "bold", "size": "sm", "wrap": true, "maxLines": 3, "margin": "sm", "color": "#1e293b" },
+                        { "type": "text", "text": snippet, "size": "xs", "color": "#64748b", "wrap": true, "maxLines": 3, "margin": "md" }
+                    ]
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "paddingAll": "15px",
+                    "paddingTop": "0px",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": "#ea580c", // 茂暉橘
+                            "height": "sm",
+                            "action": { "type": "uri", "label": "閱讀全文", "uri": news.link }
+                        }
+                    ]
+                }
+            };
+        });
+
+        // 👑 業務小心機：在新聞最後硬塞一張「關心＋引導下單」的卡片！
+        bubbles.push({
+            "type": "bubble",
+            "size": "micro",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#1e293b", // 企業深藍底
+                "paddingAll": "12px",
+                "contents": [
+                    { "type": "text", "text": "🛡️ 茂暉工安防護", "color": "#ffffff", "weight": "bold", "size": "xs" }
+                ]
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "paddingAll": "15px",
+                "contents": [
+                    { "type": "text", "text": "防患未然，安全無價", "weight": "bold", "size": "sm", "wrap": true, "color": "#ea580c" },
+                    { "type": "text", "text": "工安意外頻傳，您的防護裝備升級了嗎？立刻聯繫茂暉專員，為您的企業安全把關！", "size": "xs", "color": "#64748b", "wrap": true, "maxLines": 4, "margin": "md" }
+                ]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "paddingAll": "15px",
+                "paddingTop": "0px",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#ea580c",
+                        "height": "sm",
+                        "action": {
+                            "type": "uri",
+                            "label": "大宗採購報價",
+                            // 動態抓取 LIFF 網址
+                            "uri": "https://liff.line.me/" + (process.env.LIFF_ID || "2009580591-79qXbnPt")
+                        }
+                    }
+                ]
+            }
+        });
+
+        // 呼叫 LINE API 廣播給所有好友
+        await client.broadcast({
+            "type": "flex",
+            "altText": "⚠️ 本週最新工安快訊與防護建議",
+            "contents": { "type": "carousel", "contents": bubbles }
+        });
+
+        res.send('<h1>🚀 報告老闆！成功抓取最新新聞，並已光速廣播給所有 LINE 粉絲！</h1>');
+        console.log('✅ 新聞廣播成功！');
+
+    } catch (error) {
+        console.error('新聞廣播失敗:', error);
+        res.status(500).send('<h1>❌ 廣播失敗，請查看伺服器 Log：</h1><p>' + error.message + '</p>');
+    }
+});
+
+app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載新聞廣播核彈版)'));
 
 // ==========================================
-// 【LINE Webhook 核心處理】
+// 【旗艦功能 4】：LINE Webhook 核心處理 (AI 對話與客服)
 // ==========================================
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
     try {
@@ -165,9 +298,7 @@ async function handleEvent(event) {
     let userMessage = event.message.text || ''; 
     let difyFiles = []; 
 
-    // ==========================================
-    // 【完美閉環】攔截客人的確認文字，發送老闆指定的尊榮回覆！
-    // ==========================================
+    // 【完美閉環】攔截客人的表單確認文字，發送尊榮回覆！
     if (userMessage.includes('【報價需求已送出】')) {
         return client.replyMessage({
             replyToken: replyToken,
@@ -319,5 +450,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉機器人已啟動，搭載完美閉環版！監聽 Port: ${port}`);
+    console.log(`茂暉機器人已啟動，搭載新聞廣播核彈版！監聽 Port: ${port}`);
 });
