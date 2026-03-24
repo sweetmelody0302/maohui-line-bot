@@ -256,11 +256,13 @@ app.get('/api/broadcast-news', async (req, res) => {
             }
         });
 
-        // 呼叫 LINE API 廣播給所有好友
+        // 呼叫 LINE API 廣播給所有好友 (【Bug 已修復】：外層包上 messages 陣列)
         await client.broadcast({
-            "type": "flex",
-            "altText": "⚠️ 本週最新工安快訊與防護建議",
-            "contents": { "type": "carousel", "contents": bubbles }
+            messages: [{
+                "type": "flex",
+                "altText": "⚠️ 本週最新工安快訊與防護建議",
+                "contents": { "type": "carousel", "contents": bubbles }
+            }]
         });
 
         res.send('<h1>🚀 報告老闆！成功抓取最新新聞，並已光速廣播給所有 LINE 粉絲！</h1>');
