@@ -35,6 +35,7 @@ app.get('/liff', (req, res) => {
             body { background-color: #f1f5f9; font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
             .btn-orange { background-color: #ea580c; color: white; }
             .btn-orange:hover { background-color: #c2410c; }
+            .btn-success { background-color: #10b981 !important; color: white !important; }
         </style>
     </head>
     <body class="p-4">
@@ -77,7 +78,7 @@ app.get('/liff', (req, res) => {
             document.getElementById('leadForm').addEventListener('submit', function(e) {
                 e.preventDefault();
                 const btn = document.getElementById('submitBtn');
-                btn.innerText = '傳送中...';
+                btn.innerText = '光速傳送中...';
                 btn.disabled = true;
 
                 const data = {
@@ -95,19 +96,22 @@ app.get('/liff', (req, res) => {
                 }).then(res => res.json())
                   .then(() => {
                       if (liff.isInClient()) {
+                          // 在手機 LINE APP 內：自動幫客人發送確認文字，然後秒關視窗！
                           liff.sendMessages([{
                               type: 'text',
-                              text: \`【報價需求已送出】\\n公司：\${data.company}\\n聯絡人：\${data.name}\\n電話：\${data.phone}\\n品項：\${data.items}\\n數量：\${data.quantity}\\n\\n請專員盡速為我報價！\`
+                              text: \`【報價需求已送出】\\n公司：\${data.company}\\n聯絡人：\${data.name}\\n電話：\${data.phone}\\n品項：\${data.items}\\n數量：\${data.quantity}\`
                           }]).then(() => {
                               liff.closeWindow(); 
                           }).catch(err => {
-                              // 【防呆】就算 LINE 傳送訊息卡住，也強制關閉網頁！
                               console.error('LIFF 訊息傳送失敗', err);
                               liff.closeWindow(); 
                           });
                       } else {
-                          alert('報價需求已送出！業務專員將盡速與您聯絡。');
-                          btn.innerText = '已成功送出';
+                          // 在電腦版或外部瀏覽器：改變按鈕顏色並嘗試關閉
+                          btn.classList.add('btn-success');
+                          btn.innerText = '已成功送出！請關閉此網頁回到 LINE';
+                          alert('您的報價單已成功送出！請關閉此視窗回到 LINE。');
+                          window.close(); // 嘗試關閉網頁 (瀏覽器可能會阻擋，所以加上文字提示)
                       }
                   }).catch(err => {
                       console.error(err);
@@ -123,25 +127,19 @@ app.get('/liff', (req, res) => {
 });
 
 // ==========================================
-// 【轉拋 Google Sheets】(已修復：射後不理光速模式)
+// 【轉拋 Google Sheets】(射後不理光速模式)
 // ==========================================
 app.post('/api/submit-lead', express.json(), (req, res) => {
     const googleScriptUrl = process.env.GOOGLE_SCRIPT_URL;
-    
-    // 1. 收到資料後，立刻！馬上！回傳成功給手機，讓表單瞬間關閉 (不讓客人等 Google)
-    res.json({ success: true });
-
-    // 2. 偷偷在背景把資料打給 Google Sheets
+    res.json({ success: true }); // 秒回成功，讓前端立刻關閉
     if (googleScriptUrl) {
         axios.post(googleScriptUrl, req.body)
             .then(() => console.log('✅ Google Sheets 背景寫入成功'))
-            .catch(err => console.error('⚠️ Google Sheets 背景寫入失敗 (但已收到資料):', err.message));
-    } else {
-        console.error('⚠️ 老闆尚未設定 GOOGLE_SCRIPT_URL 變數！');
+            .catch(err => console.error('⚠️ Google Sheets 背景寫入失敗:', err.message));
     }
 });
 
-app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載LIFF光速關閉版)'));
+app.get('/', (req, res) => res.send('茂暉國際中繼站運作正常！(已搭載完美閉環版)'));
 
 // ==========================================
 // 【LINE Webhook 核心處理】
@@ -167,10 +165,16 @@ async function handleEvent(event) {
     let userMessage = event.message.text || ''; 
     let difyFiles = []; 
 
+    // ==========================================
+    // 【完美閉環】攔截客人的確認文字，發送老闆指定的尊榮回覆！
+    // ==========================================
     if (userMessage.includes('【報價需求已送出】')) {
         return client.replyMessage({
             replyToken: replyToken,
-            messages: [{ type: 'text', text: '老闆您好！您的專屬報價需求我們已經收到並匯入系統囉！✨\n\n我們的業務專員會用最快的速度為您核算最優惠的批發價格，並盡速與您聯繫，請您稍候！' }]
+            messages: [{ 
+                type: 'text', 
+                text: '🎉 老闆您好！您的專屬採購需求我們已經收到囉！\n\n茂暉業務團隊正在為您精算【最優惠的專屬批發價】💰，我們將用最快的速度親自為您報價，請稍候片刻！非常感謝您的支持😊' 
+            }]
         });
     }
 
@@ -315,5 +319,5 @@ async function handleEvent(event) {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`茂暉機器人已啟動，搭載 LIFF 光速關閉版！監聽 Port: ${port}`);
+    console.log(`茂暉機器人已啟動，搭載完美閉環版！監聽 Port: ${port}`);
 });
